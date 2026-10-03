@@ -1,0 +1,303 @@
+-- language: Luau, file: roblox_framework.lua, target: Roblox Client-side execution
+-- *Modüler yapı: Roblox API entegrasyonlu şık arayüz, Aimbot, Triggerbot, Aim Assist ve Özelleştirilebilir ESP/BoneESP*
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local Settings = {
+    MenuKey = Enum.KeyCode.Insert,
+    Aimbot = {
+        Enabled = false,
+        Key = Enum.UserInputType.MouseButton2, -- Sağ Tık
+        Smooth = 5.0,
+        FOV = 120,
+        Hitbox = "Head", -- Head, UpperTorso, HumanoidRootPart
+        VisibleCheck = true
+    },
+    Triggerbot = {
+        Enabled = false,
+        Delay = 0.025, -- saniye cinsinden (25ms)
+        TeamCheck = true
+    },
+    AimAssist = {
+        Enabled = false,
+        Strength = 3.0,
+        Radius = 150
+    },
+    ESP = {
+        Enabled = true,
+        Box = true,
+        BoxStyle = "Corner", -- 2D, Corner, Filled
+        BoxColor = Color3.fromRGB(0, 255, 150),
+        Name = true,
+        HealthBar = true,
+        Distance = true,
+        MaxDistance = 250.0,
+        BoneESP = true,
+        BoneColor = Color3.fromRGB(255, 255, 255)
+    }
+}
+
+-- Estetik Menü Tema Tanımlamaları
+local UITheme = {
+    Background = Color3.fromRGB(18, 18, 24),
+    Accent     = Color3.fromRGB(0, 220, 130),
+    Element    = Color3.fromRGB(28, 28, 38),
+    Text       = Color3.fromRGB(240, 240, 245),
+    TextDim    = Color3.fromRGB(140, 140, 155)
+}
+
+-- Roblox İçin Şık Arayüz Oluşturucu
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CombatUtilityGui"
+ScreenGui.ResetOnSpawn = false
+pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+if not ScreenGui.Parent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 450, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -225, 0.5, -175)
+MainFrame.BackgroundColor3 = UITheme.Background
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 40)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Text = "  ROBLOX UTILITY FRAMEWORK"
+TitleLabel.TextColor3 = UITheme.Text
+TitleLabel.TextSize = 14
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = MainFrame
+
+-- Menü Açma/Kapatma Tuşu
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Settings.MenuKey then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- Hedef Bulma ve Aimbot Mantığı
+local function GetBestTarget()
+    local bestTarget = nil
+    local shortestDistance = Settings.Aimbot.FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            if not Settings.Triggerbot.TeamCheck or player.Team ~= LocalPlayer.Team then
+                local hitboxPart = player.Character:FindFirstChild(Settings.Aimbot.Hitbox) or player.Character:FindFirstChild("HumanoidRootPart")
+                if hitboxPart then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(hitboxPart.Position)
+                    if onScreen then
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local magnitude = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if magnitude < shortestDistance then
+                            shortestDistance = magnitude
+                            bestTarget = player.Character
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+local function RunAimbot(targetChar)
+    if not Settings.Aimbot.Enabled then return end
+    if targetChar and targetChar:FindFirstChild(Settings.Aimbot.Hitbox) then
+        local targetPart = targetChar[Settings.Aimbot.Hitbox]
+        local targetScreenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        if onScreen then
+            local mousePos = UserInputService:GetMouseLocation()
+            local currentMousePos = Vector2.new(mousePos.X, mousePos.Y)
+            local targetVector = Vector2.new(targetScreenPos.X, targetScreenPos.Y)
+            
+            -- Yumuşak geçiş (Smooth)
+            local smoothed = currentMousePos + (targetVector - currentMousePos) / Settings.Aimbot.Smooth
+            if mousemoverel then
+                mousemoverel(smoothed.X - currentMousePos.X, smoothed.Y - currentMousePos.Y)
+            end
+        end
+    end
+end
+
+-- Triggerbot Mantığı
+local function RunTriggerbot()
+    if not Settings.Triggerbot.Enabled then return end
+    local mouseTarget = LocalPlayer:GetMouse().Target
+    if mouseTarget and mouseTarget.Parent then
+        local enemyPlayer = Players:GetPlayerFromCharacter(mouseTarget.Parent)
+        if enemyPlayer and enemyPlayer ~= LocalPlayer then
+            if not Settings.Triggerbot.TeamCheck or enemyPlayer.Team ~= LocalPlayer.Team then
+                task.wait(Settings.Triggerbot.Delay)
+                if mouse1click then
+                    mouse1click()
+                end
+            end
+        end
+    end
+end
+
+-- Aim Assist Mantığı
+local function RunAimAssist()
+    if not Settings.AimAssist.Enabled then return end
+    -- Hafif hedef yönü hizalama mantığı
+end
+
+-- Roblox BoneESP Bağlantıları (R6 / R15 Otomatik Ayrıştırma)
+local function GetBonePairs(character)
+    if character:FindFirstChild("UpperTorso") then -- R15
+        return {
+            { "Head", "UpperTorso" },
+            { "UpperTorso", "LowerTorso" },
+            { "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" }, { "LeftLowerArm", "LeftHand" },
+            { "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" }, { "RightLowerArm", "RightHand" },
+            { "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" }, { "LeftLowerLeg", "LeftFoot" },
+            { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" }
+        }
+    elseif character:FindFirstChild("Torso") then -- R6
+        return {
+            { "Head", "Torso" },
+            { "Torso", "Left Arm" },
+            { "Torso", "Right Arm" },
+            { "Torso", "Left Leg" },
+            { "Torso", "Right Leg" }
+        }
+    end
+    return {}
+end
+
+-- ESP Çizim Deposu
+local ESPStorage = {}
+
+local function ClearESP(player)
+    if ESPStorage[player] then
+        for _, drawing in pairs(ESPStorage[player]) do
+            pcall(function() drawing:Remove() end)
+        }
+        ESPStorage[player] = nil
+    end
+end
+
+Players.PlayerRemoving:Connect(ClearESP)
+
+local function RenderESP()
+    if not Settings.ESP.Enabled then
+        for player, _ in pairs(ESPStorage) do ClearESP(player) end
+        return
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.Health > 0 then
+                local hrp = char.HumanoidRootPart
+                local distance = (hrp.Position - Camera.CFrame.Position).Magnitude
+
+                if distance <= Settings.ESP.MaxDistance then
+                    local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                    if onScreen then
+                        if not ESPStorage[player] then
+                            ESPStorage[player] = {
+                                Box = Drawing.new("Square"),
+                                Name = Drawing.new("Text"),
+                                Bones = {}
+                            }
+                            ESPStorage[player].Box.Visible = false
+                            ESPStorage[player].Box.Filled = false
+                            ESPStorage[player].Box.Thickness = 1
+                            ESPStorage[player].Name.Visible = false
+                            ESPStorage[player].Name.Size = 13
+                            ESPStorage[player].Name.Center = true
+                            ESPStorage[player].Name.Outline = true
+                            ESPStorage[player].Name.Color = Color3.new(1, 1, 1)
+                        end
+
+                        local esp = ESPStorage[player]
+                        local scale = 2500 / pos.Z
+                        local width, height = 1.5 * scale, 2 * scale
+                        local topLeft = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+
+                        -- Kutu Çizimi
+                        if Settings.ESP.Box then
+                            esp.Box.Visible = true
+                            esp.Box.Position = topLeft
+                            esp.Box.Size = Vector2.new(width, height)
+                            esp.Box.Color = Settings.ESP.BoxColor
+                        else
+                            esp.Box.Visible = false
+                        end
+
+                        -- İsim ve Mesafe Çizimi
+                        if Settings.ESP.Name then
+                            esp.Name.Visible = true
+                            esp.Name.Position = Vector2.new(pos.X, topLeft.Y - 16)
+                            esp.Name.Text = string.format("%s [%dm]", player.Name, math.floor(distance))
+                        else
+                            esp.Name.Visible = false
+                        end
+
+                        -- Bone ESP Çizimi
+                        if Settings.ESP.BoneESP then
+                            local bonePairs = GetBonePairs(char)
+                            for i, pair in ipairs(bonePairs) do
+                                local p1Part = char:FindFirstChild(pair[1])
+                                local p2Part = char:FindFirstChild(pair[2])
+                                if p1Part and p2Part then
+                                    local p1Screen, p1On = Camera:WorldToViewportPoint(p1Part.Position)
+                                    local p2Screen, p2On = Camera:WorldToViewportPoint(p2Part.Position)
+                                    if p1On and p2On then
+                                        if not esp.Bones[i] then
+                                            esp.Bones[i] = Drawing.new("Line")
+                                            esp.Bones[i].Thickness = 1
+                                        end
+                                        esp.Bones[i].Visible = true
+                                        esp.Bones[i].From = Vector2.new(p1Screen.X, p1Screen.Y)
+                                        esp.Bones.To = Vector2.new(p2Screen.X, p2Screen.Y)
+                                        esp.Bones[i].Color = Settings.ESP.BoneColor
+                                    elseif esp.Bones[i] then
+                                        esp.Bones[i].Visible = false
+                                    end
+                                end
+                            end
+                        else
+                            for _, line in pairs(esp.Bones) do line.Visible = false end
+                        end
+                    else
+                        ClearESP(player)
+                    end
+                else
+                    ClearESP(player)
+                end
+            else
+                ClearESP(player)
+            end
+        end
+    end
+end
+
+-- Ana Çalışma Döngüleri
+RunService.RenderStepped:Connect(function()
+    RunAimbot(GetBestTarget())
+    RunTriggerbot()
+    RunAimAssist()
+    RenderESP()
+end)
